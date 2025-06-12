@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.custom_logger import get_logger
 
 # Configure logging
-logger = get_logger("health_route")
+logger = get_logger()
 
 
 class HealthResponse(BaseModel):
@@ -30,5 +30,5 @@ router = APIRouter()
 )
 async def health(request: Request) -> HealthResponse:
     """Health check endpoint that returns status of the service."""
-    logger.info("Health check", extra={"path": request.url.path, "method": request.method})
+    logger.info("Health check", path=request.url.path, method=request.method)
     return HealthResponse(status="healthy")

@@ -11,6 +11,8 @@ import os
 import boto3
 from dotenv import load_dotenv
 
+# from app.middleware.logging import log_requests
+
 # Project configuration
 PROJECT_NAME = "chatbot"  # Used for SSM parameter paths
 
@@ -46,7 +48,7 @@ from app.middleware.auth import auth_middleware
 from app.routes import chat, health, title, user
 
 # Configure logging
-logger = get_logger("app")
+logger = get_logger()
 
 # Create FastAPI application
 app = FastAPI(

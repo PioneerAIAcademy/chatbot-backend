@@ -4,6 +4,7 @@ Chat routes for the chatbot backend.
 This module contains the routes for chat-related endpoints.
 """
 
+import time
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -32,6 +33,8 @@ from app.models.chat import (
     CreateChatRequest,
     CreateStreamRequest,
     Message,
+    MessagePart,
+    SaveMessageRequestMessage,
     SaveMessagesRequest,
     Stream,
     StreamIdsResponse,
@@ -46,10 +49,14 @@ from app.providers.test import is_test_prompt, test_provider
 from app.utils import stream_chat_chunks
 
 # Configure logging
-logger = get_logger("chat_route")
+logger = get_logger()
 
 # Create a router for the chat endpoints
 router = APIRouter()
+
+# Simple in-memory cache for request deduplication
+# Key: chat_id, Value: (result, timestamp)
+_get_chat_cache: dict[str, tuple[Chat, float]] = {}
 
 
 @router.post(
@@ -94,6 +101,7 @@ async def handle_chat_data(chat_id: str, request: ChatRequest, req: Request) -> 
             async def generate_provider_chunks() -> AsyncGenerator[str | dict, None]:
                 try:
                     chunk_count = 0
+                    chunk_texts = []
                     logger.debug("Starting generation loop")
                     for chunk in provider.stream_chat_response(provider_messages, system_message=CHAT_SYSTEM_PROMPT):
                         # check if client is disconnected
@@ -103,10 +111,23 @@ async def handle_chat_data(chat_id: str, request: ChatRequest, req: Request) -> 
                         # Only count text chunks, not usage information
                         if isinstance(chunk, str):
                             chunk_count += 1
-                            if chunk_count % 10 == 0:  # Log every 10 chunks
+                            chunk_texts.append(chunk)
+                            if chunk_count % 100 == 0:  # Log every 10 chunks
                                 logger.debug(f"Sent {chunk_count} chunks")
                         yield chunk
                     logger.debug(f"Generation complete - yielded {chunk_count} text chunks")
+                    save_messages(
+                        request.user_id,
+                        [
+                            SaveMessageRequestMessage(
+                                chat_id=chat_id,
+                                role="assistant",
+                                parts=[MessagePart(type="text", text="".join(chunk_texts))],
+                                attachments=[],
+                                message_id=message_id,
+                            )
+                        ],
+                    )
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     yield f"Error: {e}"
@@ -152,13 +173,31 @@ async def handle_chat_data(chat_id: str, request: ChatRequest, req: Request) -> 
 async def get_chat(chat_id: str) -> Chat:
     """Get chat by ID."""
     logger.debug(f"Getting chat by ID: {chat_id}")
+
+    # Check cache for recent requests (within 1 second)
+    current_time = time.time()
+    if chat_id in _get_chat_cache:
+        cached_result, cached_time = _get_chat_cache[chat_id]
+        if current_time - cached_time < 1.0:
+            logger.debug(f"Returning cached result for chat {chat_id}")
+            return cached_result
+
     try:
         chat = get_chat_by_id(chat_id)
     except Exception as err:
-        logger.error("Failed to get chat %s: %s", chat_id, err)
+        logger.error("Failed to get chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat with ID '{chat_id}' not found")
+
+    # Cache the result
+    _get_chat_cache[chat_id] = (chat, current_time)
+
+    # Clean up old cache entries (older than 10 seconds)
+    keys_to_remove = [key for key, (_, timestamp) in _get_chat_cache.items() if current_time - timestamp > 10.0]
+    for key in keys_to_remove:
+        del _get_chat_cache[key]
+
     return chat
 
 
@@ -169,10 +208,10 @@ async def create_chat(request: CreateChatRequest) -> Chat:
     try:
         return save_chat(request.chat_id, request.user_id, request.title, request.visibility)
     except ValidationError as err:
-        logger.error("Validation error creating chat: %s", err)
+        logger.error("Validation error creating chat: {}", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid chat data") from err
     except Exception as err:
-        logger.error("Failed to create chat: %s", err)
+        logger.error("Failed to create chat: {}", err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -182,7 +221,7 @@ async def delete_chat(chat_id: str) -> None:
     try:
         delete_chat_by_id(chat_id)
     except Exception as err:
-        logger.error("Failed to delete chat %s: %s", chat_id, err)
+        logger.error("Failed to delete chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -192,7 +231,7 @@ async def update_chat_visibility(chat_id: str, request: UpdateChatVisibilityRequ
     try:
         update_chat_visibility_by_id(chat_id, request.visibility)
     except Exception as err:
-        logger.error("Failed to update chat visibility %s: %s", chat_id, err)
+        logger.error("Failed to update chat visibility {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -202,7 +241,7 @@ async def get_chat_messages(chat_id: str) -> list[Message]:
     try:
         return get_messages_by_chat_id(chat_id)
     except Exception as err:
-        logger.error("Failed to get messages for chat %s: %s", chat_id, err)
+        logger.error("Failed to get messages for chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -212,7 +251,7 @@ async def get_message(message_id: str) -> Message:
     try:
         message = get_message_by_id(message_id)
     except Exception as err:
-        logger.error("Failed to get message %s: %s", message_id, err)
+        logger.error("Failed to get message {}: {}", message_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Message with ID '{message_id}' not found")
@@ -225,10 +264,10 @@ async def save_chat_messages(chat_id: str, request: SaveMessagesRequest) -> None
     try:
         save_messages(request.user_id, request.messages)
     except ValidationError as err:
-        logger.error("Validation error saving messages: %s", err)
+        logger.error("Validation error saving messages: {}s", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid message data") from err
     except Exception as err:
-        logger.error("Failed to save messages to chat %s: %s", chat_id, err)
+        logger.error("Failed to save messages to chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -244,12 +283,12 @@ async def delete_chat_messages_after_timestamp(
         datetime.fromisoformat(timestamp)  # Just for validation
         delete_messages_by_chat_id_after_timestamp(chat_id, timestamp)
     except ValueError as err:
-        logger.error("Invalid timestamp format: %s", err)
+        logger.error("Invalid timestamp format: {}", err)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid timestamp format. Use ISO format."
         ) from err
     except Exception as err:
-        logger.error("Failed to delete messages for chat %s: %s", chat_id, err)
+        logger.error("Failed to delete messages for chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -259,10 +298,10 @@ async def vote_on_message(chat_id: str, message_id: str, request: VoteMessageReq
     try:
         vote_message(chat_id, message_id, request.vote_type)
     except ValidationError as err:
-        logger.error("Validation error voting on message: %s", err)
+        logger.error("Validation error voting on message: {}", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid vote data") from err
     except Exception as err:
-        logger.error("Failed to vote on message %s: %s", message_id, err)
+        logger.error("Failed to vote on message {}: {}", message_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -272,7 +311,7 @@ async def get_chat_votes(chat_id: str) -> list[Vote]:
     try:
         return get_votes_by_chat_id(chat_id)
     except Exception as err:
-        logger.error("Failed to get votes for chat %s: %s", chat_id, err)
+        logger.error("Failed to get votes for chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -287,10 +326,10 @@ async def create_stream(chat_id: str, request: CreateStreamRequest) -> Stream:
     try:
         return create_stream_id(request.stream_id, chat_id)
     except ValidationError as err:
-        logger.error("Validation error creating stream: %s", err)
+        logger.error("Validation error creating stream: {}", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid stream data") from err
     except Exception as err:
-        logger.error("Failed to create stream for chat %s: %s", chat_id, err)
+        logger.error("Failed to create stream for chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -301,5 +340,5 @@ async def get_chat_streams(chat_id: str) -> StreamIdsResponse:
         stream_ids = get_stream_ids_by_chat_id(chat_id)
         return StreamIdsResponse(stream_ids=stream_ids)
     except Exception as err:
-        logger.error("Failed to get streams for chat %s: %s", chat_id, err)
+        logger.error("Failed to get streams for chat {}: {}", chat_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err

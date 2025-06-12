@@ -11,7 +11,7 @@ from fastapi import Request, Response
 from app.custom_logger import get_logger
 
 # Configure logging
-logger = get_logger("middleware")
+logger = get_logger()
 
 
 async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -36,8 +36,9 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
         # If we can't decode as UTF-8, just log that it's binary data
         body_log = f"<Binary data of length {len(body_bytes)}>"
 
-    # Log request details
-    logger.info("request", extra={"path": request.url.path, "method": request.method, "body": body_log})
+    # Log request details including headers
+    headers_dict = dict(request.headers)
+    logger.info("request", path=request.url.path, method=request.method, body=body_log, headers=headers_dict)
 
     # Create a custom receive function that properly returns the expected message format
     original_receive = request.scope.get("receive", None)

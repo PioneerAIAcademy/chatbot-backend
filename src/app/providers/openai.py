@@ -18,7 +18,7 @@ from app.custom_logger import get_logger
 DEFAULT_MODEL = "gpt-4o-mini"
 
 # Configure logging
-logger = get_logger("openai")
+logger = get_logger()
 
 
 @lru_cache

@@ -13,7 +13,7 @@ from app.db.db import users_table
 from app.models.user import User
 
 # Configure logging
-logger = get_logger("db.user")
+logger = get_logger()
 
 # Users
 # - PK=user_id
@@ -54,7 +54,7 @@ def create_user(email: str, password_hash: str) -> User:
         users_table.put_item(Item=item)
         return User.model_validate(item)
     except ClientError as err:
-        logger.error("Failed to create user %s: %s", email, err)
+        logger.error("Failed to create user {}: {}", email, err)
         raise RuntimeError("Could not write new user to database") from err
 
 
@@ -75,7 +75,7 @@ def create_guest_user() -> User:
         users_table.put_item(Item=item)
         return User.model_validate(item)
     except ClientError as err:
-        logger.error("Failed to create user %s: %s", email, err)
+        logger.error("Failed to create user {}: {}", email, err)
         raise RuntimeError("Could not write new user to database") from err
 
 
@@ -107,5 +107,5 @@ def get_or_create_user_from_oauth(email: str | None, provider: str, provider_acc
             raise RuntimeError("User creation race condition: user not found after creation") from None
         return user
     except ClientError as err:
-        logger.error("Failed to create user %s: %s", email, err)
+        logger.error("Failed to create user {}: {}", email, err)
         raise RuntimeError("Could not write new user to database") from err

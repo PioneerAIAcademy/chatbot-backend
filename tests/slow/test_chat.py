@@ -6,6 +6,7 @@ This module tests chat CRUD operations, visibility updates, and related error sc
 
 import json
 import os
+import time
 import uuid
 
 import pytest
@@ -162,6 +163,8 @@ def test_create_and_delete_chat(test_client, auth_headers):
     assert delete_response.status_code == 204
 
     # Verify chat no longer exists via GET /api/chats/{chat_id} - expect 404
+    # wait 1 second to ensure the cache is updated
+    time.sleep(1.1)
     get_deleted_chat_response = test_client.get(f"/api/chats/{chat_id}", headers=auth_headers)
     assert get_deleted_chat_response.status_code == 404
 

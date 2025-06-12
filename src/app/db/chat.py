@@ -12,10 +12,10 @@ from botocore.exceptions import ClientError
 
 from app.custom_logger import get_logger
 from app.db.db import chats_table
-from app.models.chat import Chat, ChatListResponse, Message, Stream, Vote
+from app.models.chat import Chat, ChatListResponse, Message, SaveMessageRequestMessage, Stream, Vote
 
 # Configure logging
-logger = get_logger("db.chat")
+logger = get_logger()
 
 # Chats
 # - PK=chat_id
@@ -54,7 +54,7 @@ def save_chat(chat_id: str, user_id: str, title: str, visibility: str) -> Chat:
         chats_table.put_item(Item=item)
         return Chat.model_validate(item)
     except ClientError as err:
-        logger.error("Failed to create chat %s: %s", chat_id, err)
+        logger.error("Failed to create chat {}: {}", chat_id, err)
         raise RuntimeError("Could not write new chat to database") from err
 
 
@@ -66,7 +66,7 @@ def delete_chat_by_id(chat_id: str) -> None:
             for item in resp.get("Items", []):
                 batch.delete_item(Key={"chat_id": item["chat_id"], "sk": item["sk"]})
     except ClientError as err:
-        logger.error("Failed to delete chat %s: %s", chat_id, err)
+        logger.error("Failed to delete chat {}: {}", chat_id, err)
         raise RuntimeError("Could not delete chat from database") from err
 
 
@@ -79,10 +79,10 @@ def get_chats_by_user_id(
 
     try:
 
-        def query_chat(cond: Any) -> dict[str, Any]:
+        def query_chat(cond: Any = None) -> dict[str, Any]:
             params = {
                 "IndexName": idx,
-                "KeyConditionExpression": Key("user_id").eq(user_id) & cond,
+                "KeyConditionExpression": Key("user_id").eq(user_id) & cond if cond else Key("user_id").eq(user_id),
                 "ScanIndexForward": False,
                 "Limit": extended_limit,
             }
@@ -104,14 +104,14 @@ def get_chats_by_user_id(
 
         else:
             # no cursor → fetch newest first
-            resp = query_chat(Key("chat_created_at").gt("1970-01-01T00:00:00+00:00"))
+            resp = query_chat()
 
         items = resp.get("Items", [])
         has_more = len(items) > limit
         chats = [Chat.model_validate(item) for item in items[:limit]]
         return ChatListResponse(chats=chats, has_more=has_more)
     except ClientError as err:
-        logger.error("Failed to get chats for user %s: %s", user_id, err)
+        logger.error("Failed to get chats for user {}: {}", user_id, err)
         raise RuntimeError("Could not get chats from database") from err
 
 
@@ -123,23 +123,24 @@ def get_chat_by_id(chat_id: str) -> Chat | None:
         item = resp.get("Item")
         return Chat.model_validate(item) if item else None
     except ClientError as err:
-        logger.error("Failed to get chat %s: %s", chat_id, err)
+        logger.error("Failed to get chat {}: {}", chat_id, err)
         raise RuntimeError("Could not get chat from database") from err
 
 
-def save_messages(user_id: str, messages: list[Message]) -> None:
+def save_messages(user_id: str, messages: list[SaveMessageRequestMessage]) -> None:
     """Batch write messages."""
     try:
         with chats_table.batch_writer() as batch:
             for m in messages:
                 pk = m.chat_id
-                sk = f"MSG#{m.created_at}#{m.message_id}"
+                now = datetime.now(UTC).isoformat()
+                sk = f"MSG#{now}#{m.message_id}"
                 item = {
                     "chat_id": pk,
                     "sk": sk,
                     "type": "MESSAGE",
                     "user_id": user_id,
-                    "created_at": m.created_at,
+                    "created_at": now,
                     "role": m.role,
                     "parts": [part.model_dump() for part in m.parts],
                     "attachments": m.attachments,
@@ -147,7 +148,7 @@ def save_messages(user_id: str, messages: list[Message]) -> None:
                 }
                 batch.put_item(Item=item)
     except ClientError as err:
-        logger.error("Failed to save messages: %s", err)
+        logger.error("Failed to save messages: {}", err)
         raise RuntimeError("Could not save messages to database") from err
 
 
@@ -161,7 +162,7 @@ def get_messages_by_chat_id(chat_id: str) -> list[Message]:
         items = resp.get("Items", [])
         return [Message.model_validate(item) for item in items]
     except ClientError as err:
-        logger.error("Failed to get messages for chat %s: %s", chat_id, err)
+        logger.error("Failed to get messages for chat {}: {}", chat_id, err)
         raise RuntimeError("Could not get messages from database") from err
 
 
@@ -174,7 +175,7 @@ def vote_message(chat_id: str, message_id: str, vote_type: str) -> None:
             Item={"chat_id": pk, "sk": sk, "type": "VOTE", "message_id": message_id, "is_upvoted": (vote_type == "up")}
         )
     except ClientError as err:
-        logger.error("Failed to vote message: %s", err)
+        logger.error("Failed to vote message: {}", err)
         raise RuntimeError("Could not vote message in database") from err
 
 
@@ -186,7 +187,7 @@ def get_votes_by_chat_id(chat_id: str) -> list[Vote]:
         items = resp.get("Items", [])
         return [Vote.model_validate(item) for item in items]
     except ClientError as err:
-        logger.error("Failed to get votes for chat %s: %s", chat_id, err)
+        logger.error("Failed to get votes for chat {}: {}", chat_id, err)
         raise RuntimeError("Could not get votes from database") from err
 
 
@@ -203,7 +204,7 @@ def get_message_by_id(message_id: str) -> Message | None:
         item = get_resp.get("Item")
         return Message.model_validate(item) if item else None
     except ClientError as err:
-        logger.error("Failed to get message by id %s: %s", message_id, err)
+        logger.error("Failed to get message by id {}: {}", message_id, err)
         raise RuntimeError("Could not get message from database") from err
 
 
@@ -224,7 +225,7 @@ def delete_messages_by_chat_id_after_timestamp(chat_id: str, timestamp: str) -> 
                 # delete vote record
                 batch.delete_item(Key={"chat_id": m["chat_id"], "sk": f"VOTE#{m['message_id']}"})
     except ClientError as err:
-        logger.error("Failed to delete messages by chat id after timestamp %s: %s", chat_id, err)
+        logger.error("Failed to delete messages by chat id after timestamp {}: {}", chat_id, err)
         raise RuntimeError("Could not delete messages from database") from err
 
 
@@ -238,7 +239,7 @@ def update_chat_visibility_by_id(chat_id: str, visibility: str) -> None:
             ExpressionAttributeValues={":v": visibility},
         )
     except ClientError as err:
-        logger.error("Failed to update chat visibility: %s", err)
+        logger.error("Failed to update chat visibility: {}", err)
         raise RuntimeError("Could not update chat visibility in database") from err
 
 
@@ -254,7 +255,7 @@ def get_message_count_by_user_id(user_id: str, difference_in_hours: int) -> int:
         )
         return resp.get("Count", 0)
     except ClientError as err:
-        logger.error("Failed to get message count by user id: %s", err)
+        logger.error("Failed to get message count by user id: {}", err)
         raise RuntimeError("Could not get message count from database") from err
 
 
@@ -273,7 +274,7 @@ def create_stream_id(stream_id: str, chat_id: str) -> Stream:
         chats_table.put_item(Item=item)
         return Stream.model_validate(item)
     except ClientError as err:
-        logger.error("Failed to create stream id: %s", err)
+        logger.error("Failed to create stream id: {}", err)
         raise RuntimeError("Could not create stream id in database") from err
 
 
@@ -284,7 +285,8 @@ def get_stream_ids_by_chat_id(chat_id: str) -> list[str]:
         resp = chats_table.query(
             KeyConditionExpression=Key("chat_id").eq(pk) & Key("sk").begins_with("STR#"), ScanIndexForward=True
         )
+        logger.info("Stream ids: {}", resp.get("Items", []))
         return [item["stream_id"] for item in resp.get("Items", [])]
     except ClientError as err:
-        logger.error("Failed to get stream ids by chat id: %s", err)
+        logger.error("Failed to get stream ids by chat id: {}", err)
         raise RuntimeError("Could not get stream ids from database") from err

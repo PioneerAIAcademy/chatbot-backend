@@ -6,8 +6,9 @@ and related error scenarios.
 """
 
 import os
+import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -130,23 +131,14 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
     )
     assert chat_response.status_code == 201
 
-    # Create messages at different timestamps
-    # Create first message (earlier timestamp)
-    early_time = datetime.now(UTC) - timedelta(hours=2)
+    # Create messages at different times
     early_message_id = str(uuid.uuid4())
-
-    # Create second message (middle timestamp)
-    middle_time = datetime.now(UTC) - timedelta(hours=1)
     middle_message_id = str(uuid.uuid4())
-
-    # Create third message (later timestamp)
-    late_time = datetime.now(UTC)
     late_message_id = str(uuid.uuid4())
 
     messages_data = [
         {
             "chatId": chat_id,
-            "createdAt": early_time.isoformat(),
             "role": "user",
             "parts": [{"type": "text", "text": "Early message"}],
             "attachments": [],
@@ -154,7 +146,6 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
         },
         {
             "chatId": chat_id,
-            "createdAt": middle_time.isoformat(),
             "role": "assistant",
             "parts": [{"type": "text", "text": "Middle message"}],
             "attachments": [],
@@ -162,7 +153,6 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
         },
         {
             "chatId": chat_id,
-            "createdAt": late_time.isoformat(),
             "role": "user",
             "parts": [{"type": "text", "text": "Late message"}],
             "attachments": [],
@@ -171,12 +161,14 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
     ]
 
     # Save all messages
-    save_messages_response = test_client.post(
-        f"/api/chats/{chat_id}/messages",
-        json={"userId": user_id, "messages": messages_data},
-        headers=auth_headers,
-    )
-    assert save_messages_response.status_code == 201
+    for message in messages_data:
+        save_messages_response = test_client.post(
+            f"/api/chats/{chat_id}/messages",
+            json={"userId": user_id, "messages": [message]},
+            headers=auth_headers,
+        )
+        assert save_messages_response.status_code == 201
+        time.sleep(1)
 
     # Verify all 3 messages exist
     initial_messages_response = test_client.get(f"/api/chats/{chat_id}/messages", headers=auth_headers)
@@ -186,7 +178,7 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
 
     # Delete messages after the middle timestamp
     # This should delete the middle and late messages, keeping only the early one
-    cutoff_timestamp = middle_time.isoformat()
+    cutoff_timestamp = initial_messages[1]["createdAt"]
 
     delete_response = test_client.delete(
         f"/api/chats/{chat_id}/messages",

@@ -20,6 +20,7 @@ dependencies = [
     "boto3>=1.38.21",
     "botocore>=1.38.21",
     "fastapi>=0.115.12",
+    "loguru>=0.7.3",
     "openai>=1.78.1",
     "pydantic>=2.11.4",
     "python-dotenv>=1.1.0",
@@ -123,12 +124,13 @@ disable_error_code = [
 
 [[tool.mypy.overrides]]
 module = [
-    "pydantic.*",
+    "dotenv",
     "fastapi.*",
-    "uvicorn.*",
-    "requests.*",
+    "loguru.*",
     "openai.*",
-    "dotenv"
+    "pydantic.*",
+    "requests.*",
+    "uvicorn.*",
 ]
 ignore_missing_imports = true
 

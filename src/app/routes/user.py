@@ -19,7 +19,7 @@ from app.models.user import (
 )
 
 # Configure logging
-logger = get_logger("user_routes")
+logger = get_logger()
 
 # Create a router for user endpoints
 router = APIRouter(prefix="/api")
@@ -31,7 +31,7 @@ async def get_user_by_email(email: str) -> User:
     try:
         user = get_user(email)
     except Exception as err:
-        logger.error("Failed to get user by email %s: %s", email, err)
+        logger.error("Failed to get user by email {}: {}", email, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
     if not user:
@@ -56,10 +56,10 @@ async def create_email_user_endpoint(request: CreateEmailUserRequest) -> User:
     except HTTPException:
         raise  # Re-raise HTTPException as-is
     except ValidationError as err:
-        logger.error("Validation error creating user: %s", err)
+        logger.error("Validation error creating user: {}", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid user data") from err
     except Exception as err:
-        logger.error("Failed to create user %s: %s", request.email, err)
+        logger.error("Failed to create user {}: {}", request.email, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -70,7 +70,7 @@ async def create_guest_user_endpoint() -> User:
         user = create_guest_user()
         return user
     except Exception as err:
-        logger.error("Failed to create guest user: %s", err)
+        logger.error("Failed to create guest user: {}", err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -81,10 +81,10 @@ async def create_oauth_user(request: CreateOAuthUserRequest) -> User:
         user = get_or_create_user_from_oauth(request.email, request.provider, request.provider_account_id)
         return user
     except ValidationError as err:
-        logger.error("Validation error creating OAuth user: %s", err)
+        logger.error("Validation error creating OAuth user: {}", err)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid OAuth user data") from err
     except Exception as err:
-        logger.error("Failed to create OAuth user: %s", err)
+        logger.error("Failed to create OAuth user: {}", err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -99,7 +99,7 @@ async def get_user_chats(
     try:
         return get_chats_by_user_id(user_id, limit, starting_after, ending_before)
     except Exception as err:
-        logger.error("Failed to get chats for user %s: %s", user_id, err)
+        logger.error("Failed to get chats for user {}: {}", user_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
 
 
@@ -112,5 +112,5 @@ async def get_user_message_count(
         count = get_message_count_by_user_id(user_id, hours)
         return MessageCountResponse(count=count)
     except Exception as err:
-        logger.error("Failed to get message count for user %s: %s", user_id, err)
+        logger.error("Failed to get message count for user {}: {}", user_id, err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err

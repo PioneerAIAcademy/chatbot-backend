@@ -12,7 +12,7 @@ from app.config import API_PREFIX, get_api_secret
 from app.custom_logger import get_logger
 
 # Configure logging
-logger = get_logger("utils")
+logger = get_logger()
 
 
 async def verify_api_key(request: Request) -> bool:

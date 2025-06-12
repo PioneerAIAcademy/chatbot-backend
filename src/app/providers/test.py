@@ -15,7 +15,7 @@ from app.models.chat import ChatRequest
 STREAM_CHUNK_DELAY = 0.2
 
 # Configure logging
-logger = get_logger("test_provider")
+logger = get_logger()
 
 # Pattern for matching test prompts
 TEST_PROMPT_PATTERN = re.compile(r"^Test prompt (\d+)$")

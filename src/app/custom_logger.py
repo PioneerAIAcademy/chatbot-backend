@@ -1,79 +1,58 @@
 import json
-import logging
 import os
+import sys
+from typing import Any
+
+from loguru import _Logger, logger
+
+# 1) Remove Loguru's default handler
+logger.remove()
 
 
-class ExtraFormatter(logging.Formatter):
-    """
-    Formatter that appends any non-standard LogRecord attributes
-    (i.e. what you pass via extra={}) as a JSON dict.
-    """
+# 2) Custom sink writes directly to stdout
+def _custom_sink(msg: Any) -> None:
+    record = msg.record
 
-    def format(self, record: logging.LogRecord) -> str:
-        # First, let the base class format the known fields.
-        base = super().format(record)
-
-        # Identify “extra” fields by subtracting standard LogRecord attributes
-        standard = {
-            "name",
-            "msg",
-            "args",
-            "levelname",
-            "levelno",
-            "pathname",
-            "filename",
-            "module",
-            "exc_info",
-            "exc_text",
-            "stack_info",
-            "lineno",
-            "funcName",
-            "created",
-            "msecs",
-            "relativeCreated",
-            "taskName",
-            "thread",
-            "threadName",
-            "processName",
-            "process",
-            "message",
-            "asctime",
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        # AWS Lambda → emit a single JSON object per line
+        log_entry = {
+            "timestamp": record["time"].isoformat(),
+            "level": record["level"].name,
+            "logger": record["name"],
+            "message": record["message"],
+            **record["extra"],  # merge any extra fields at top level
         }
-        extra = {key: value for key, value in record.__dict__.items() if key not in standard}
+        sys.stdout.write(json.dumps(log_entry) + "\n")
+    else:
+        # Local → human-readable
+        t = record["time"].strftime("%Y-%m-%d %H:%M:%S")
+        lvl = record["level"].name.ljust(5)
+        nm = record["name"].ljust(30)
+        text = record["message"]
+        extra = record["extra"]
+
         if extra:
             try:
                 extra_json = json.dumps(extra)
-            except Exception:
+            except (TypeError, ValueError):
                 extra_json = str(extra)
-            return f"{base} - {extra_json}"
-        return base
+            text = f"{text} | {extra_json}"
+
+        sys.stdout.write(f"{t} | {lvl} | {nm} | {text}\n")
 
 
-def get_logger(name: str | None = None) -> logging.Logger:
+# 3) Add our sink, with only {message} ever parsed by Loguru itself
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logger.add(
+    _custom_sink,
+    level=log_level,
+    format="{message}",  # just this one placeholder
+    colorize=False,  # ANSI off—parsing of {…} still skipped because format is static
+)
+
+
+def get_logger() -> _Logger:
     """
-    Get a logger that on local runs will print:
-      timestamp - name - level - message - {"your":"extras"}
-    In AWS Lambda (where AWS_..._FUNCTION_NAME is set) it leaves logging alone.
-
-    Log level is controlled by the LOG_LEVEL environment variable.
+    Return the customized Loguru logger
     """
-    logger = logging.getLogger(name)
-
-    # Set log level from environment variable
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    try:
-        level = getattr(logging, log_level)
-    except AttributeError:
-        level = logging.INFO
-    logger.setLevel(level)
-
-    # If we're not in Lambda, install a console handler once
-    if "AWS_LAMBDA_FUNCTION_NAME" not in os.environ and not any(
-        isinstance(h, logging.StreamHandler) for h in logger.handlers
-    ):
-        console = logging.StreamHandler()
-        console.setLevel(level)
-        fmt = "%(asctime)s - %(levelname)s - %(name)s.%(message)s"
-        console.setFormatter(ExtraFormatter(fmt))
-        logger.addHandler(console)
     return logger

@@ -28,15 +28,20 @@ class Chat(SnakeOrAliasModel):
     visibility: str = Field(alias="visibility", min_length=1)
 
 
-class Message(SnakeOrAliasModel):
-    """Message model representing a message entity in the database."""
+class SaveMessageRequestMessage(SnakeOrAliasModel):
+    """Message model representing a save message request."""
 
     chat_id: str = Field(alias="chatId", min_length=1)
-    created_at: str = Field(alias="createdAt", min_length=1)
     role: Literal["user", "assistant"] = Field(alias="role")
     parts: list[MessagePart] = Field(alias="parts")
     attachments: list[Any] = Field(alias="attachments")
     message_id: str = Field(alias="id", min_length=1)
+
+
+class Message(SaveMessageRequestMessage):
+    """Message model representing a message entity in the database."""
+
+    created_at: str = Field(alias="createdAt", min_length=1)
 
 
 class Vote(SnakeOrAliasModel):
@@ -89,7 +94,7 @@ class SaveMessagesRequest(SnakeOrAliasModel):
     """Request model for saving messages to a chat."""
 
     user_id: str = Field(alias="userId", min_length=1)
-    messages: list[Message] = Field(alias="messages")
+    messages: list[SaveMessageRequestMessage] = Field(alias="messages")
 
 
 class VoteMessageRequest(SnakeOrAliasModel):

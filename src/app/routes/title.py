@@ -14,7 +14,7 @@ from app.providers.factory import default_provider
 from app.providers.test import is_test_prompt, test_provider
 
 # Configure logging
-logger = get_logger("title_route")
+logger = get_logger()
 
 # Create a router for the title endpoints
 router = APIRouter()

@@ -9,12 +9,11 @@ import boto3
 from app.custom_logger import get_logger
 
 # Configure logging
-logger = get_logger("db")
+logger = get_logger()
 
 # Initialize DynamoDB resource and tables
 # Use local DynamoDB when DYNAMODB_URL is set
 dynamodb_url = os.environ.get("DYNAMODB_URL")
-logger.info(f"DynamoDB URL: {dynamodb_url}")
 if dynamodb_url:
     # For local DynamoDB, we need to specify a region (any region works)
     dynamodb = boto3.resource("dynamodb", endpoint_url=dynamodb_url, region_name="us-east-1")
