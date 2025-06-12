@@ -4,7 +4,6 @@ Chat routes for the chatbot backend.
 This module contains the routes for chat-related endpoints.
 """
 
-import time
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -53,10 +52,6 @@ logger = get_logger()
 
 # Create a router for the chat endpoints
 router = APIRouter()
-
-# Simple in-memory cache for request deduplication
-# Key: chat_id, Value: (result, timestamp)
-_get_chat_cache: dict[str, tuple[Chat, float]] = {}
 
 
 @router.post(
@@ -174,14 +169,6 @@ async def get_chat(chat_id: str) -> Chat:
     """Get chat by ID."""
     logger.debug(f"Getting chat by ID: {chat_id}")
 
-    # Check cache for recent requests (within 1 second)
-    current_time = time.time()
-    if chat_id in _get_chat_cache:
-        cached_result, cached_time = _get_chat_cache[chat_id]
-        if current_time - cached_time < 1.0:
-            logger.debug(f"Returning cached result for chat {chat_id}")
-            return cached_result
-
     try:
         chat = get_chat_by_id(chat_id)
     except Exception as err:
@@ -189,15 +176,6 @@ async def get_chat(chat_id: str) -> Chat:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from err
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat with ID '{chat_id}' not found")
-
-    # Cache the result
-    _get_chat_cache[chat_id] = (chat, current_time)
-
-    # Clean up old cache entries (older than 10 seconds)
-    keys_to_remove = [key for key, (_, timestamp) in _get_chat_cache.items() if current_time - timestamp > 10.0]
-    for key in keys_to_remove:
-        del _get_chat_cache[key]
-
     return chat
 
 

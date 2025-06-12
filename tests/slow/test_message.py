@@ -168,7 +168,7 @@ def test_delete_messages_after_timestamp(test_client, auth_headers):
             headers=auth_headers,
         )
         assert save_messages_response.status_code == 201
-        time.sleep(1)
+        time.sleep(0.1)
 
     # Verify all 3 messages exist
     initial_messages_response = test_client.get(f"/api/chats/{chat_id}/messages", headers=auth_headers)
